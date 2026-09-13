@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Souffle — Suivi de purification de l'air</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg: #12161a; --panel: #181e23; --panel-line: #2a3238;
+    --text: #e7ece9; --text-dim: #8b9a94;
+    --clean: #4fbf8b; --clean-dim: #274a3c;
+    --warn: #e2a73b; --warn-dim: #4a3d20;
+    --bad: #e0605a; --bad-dim: #4a2620;
+    --purple: #9c8ef2; --purple-dim: #2e2a54;
+    --coral: #ef8a5f; --coral-dim: #4a2c18;
+    --pink: #ea72a0; --pink-dim: #4a2233;
+    --blue: #5b9bf7; --blue-dim: #1c3357;
+    --mono: 'IBM Plex Mono', 'Courier New', monospace;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{ height:100%; }
+  body{ background: var(--bg); color: var(--text); font-family: var(--sans); line-height: 1.5; }
+  a{color:inherit;} button{ font-family: inherit; cursor:pointer; }
+
+  .icon-chip{ display:inline-flex; align-items:center; justify-content:center; width: 30px; height: 30px; border-radius: 8px; flex-shrink:0; }
+  .icon-chip svg{ width:16px; height:16px; }
+
+  /* ---------- Login ---------- */
+  #loginScreen{
+    min-height: 100vh; display:flex; align-items:center; justify-content:center; padding: 24px;
+    background: radial-gradient(circle at 20% 10%, #1c2e2a 0%, transparent 45%), radial-gradient(circle at 85% 90%, #1c2440 0%, transparent 45%), var(--bg);
+  }
+  .auth-card{ width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--panel-line); border-radius: 16px; padding: 32px; position: relative; overflow: hidden; }
+  .auth-card::before{ content:''; position:absolute; top:0; left:0; right:0; height:4px; background: linear-gradient(90deg, var(--blue), var(--clean)); }
+  .auth-logo{ display:flex; align-items:center; gap:10px; margin-bottom: 24px; }
+  .auth-logo .icon-chip{ width:40px; height:40px; background: linear-gradient(135deg, var(--blue), var(--clean)); }
+  .auth-logo .icon-chip svg{ width:22px; height:22px; }
+  .auth-logo h1{ font-size: 20px; font-weight: 600; }
+  .auth-tabs{ display:flex; gap: 4px; background: var(--bg); border-radius: 8px; padding: 4px; margin-bottom: 20px; }
+  .auth-tab{ flex:1; text-align:center; padding: 8px; border-radius: 6px; border:none; background:transparent; color: var(--text-dim); font-size: 13px; font-weight: 500; }
+  .auth-tab.active{ background: var(--panel); color: var(--text); }
+  .field{ margin-bottom: 14px; }
+  .field label{ display:block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+  .field input{ width:100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--panel-line); background: var(--bg); color: var(--text); font-size: 14px; }
+  .field input:focus{ outline: none; border-color: var(--blue); }
+  .auth-submit{ width:100%; padding: 12px; border:none; border-radius: 8px; margin-top: 6px; background: linear-gradient(90deg, var(--blue), var(--clean)); color: #0d1310; font-size: 14px; font-weight: 600; }
+  .auth-hint{ font-size: 12px; color: var(--text-dim); margin-top: 16px; text-align:center; }
+  .auth-hint code{ font-family: var(--mono); background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+  .auth-error{ font-size: 13px; color: var(--bad); margin-top: 10px; display:none; }
+  .auth-guest{ display:block; text-align:center; margin-top: 14px; font-size: 13px; color: var(--blue); }
+
+  /* ---------- App shell (mobile app style) ---------- */
+  #app{ display:none; min-height:100vh; flex-direction:column; max-width: 480px; margin:0 auto; background: var(--bg); position:relative; }
+  .app-bar{
+    display:flex; align-items:center; justify-content:space-between; padding: 16px 20px;
+    border-bottom: 1px solid var(--panel-line); position: sticky; top:0; background: var(--bg); z-index: 5;
+  }
+  .app-bar-title{ display:flex; align-items:center; gap:10px; }
+  .app-bar-title .icon-chip{ background: linear-gradient(135deg, var(--blue), var(--clean)); width:34px; height:34px; }
+  .app-bar-title .icon-chip svg{ width:18px; height:18px; }
+  .app-bar-title h1{ font-size: 17px; font-weight: 600; }
+  .avatar{ width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size: 12px; font-weight: 600; color: #0d1310; flex-shrink:0; }
+
+  .page{ display:none; padding: 20px; padding-bottom: 100px; flex: 1; }
+  .page.active{ display:block; }
+  .page-title{ font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .page-sub{ font-size: 13px; color: var(--text-dim); margin-bottom: 20px; }
+
+  .bottom-nav{
+    position: sticky; bottom:0; display:flex; background: var(--panel); border-top: 1px solid var(--panel-line);
+    padding: 8px 4px calc(8px + env(safe-area-inset-bottom)) 4px; z-index: 10;
+  }
+  .nav-item{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none;
+    color: var(--text-dim); font-size: 11px; padding: 6px 2px; border-radius: 8px;
+  }
+  .nav-item svg{ width:20px; height:20px; }
+  .nav-item.active{ color: var(--clean); }
+  .nav-item .dot-badge{
+    position:relative;
+  }
+  .nav-item .dot-badge::after{
+    content: attr(data-count); display:none;
+  }
+  .nav-badge{
+    position:absolute; top:-2px; right:-6px; background: var(--bad); color:#fff; font-size:9px;
+    min-width:14px; height:14px; border-radius:7px; display:flex; align-items:center; justify-content:center; padding: 0 3px;
+  }
+  .nav-icon-wrap{ position:relative; }
+
+  /* ---------- Hero (page 1) ---------- */
+  .hero{ display:flex; align-items:center; gap: 20px; padding-bottom: 24px; border-bottom: 1px solid var(--panel-line); margin-bottom: 24px; }
+  .hero-illustration{ width: 64px; height:64px; flex-shrink:0; }
+  .hero-number{ font-family: var(--mono); font-size: 48px; font-weight: 700; line-height: 1; color: var(--clean); }
+  .hero-unit{ font-family: var(--mono); font-size: 13px; color: var(--text-dim); }
+  .badge{ display:inline-block; padding: 4px 10px; border-radius: 4px; font-family: var(--mono); font-size: 12px; background: var(--clean-dim); color: var(--clean); margin-top:6px; }
+
+  .protocol-list{ list-style:none; counter-reset: step; margin-bottom: 24px; }
+  .protocol-list li{ counter-increment: step; display:flex; gap:12px; padding: 12px 0; border-bottom: 1px solid var(--panel-line); font-size: 14px; }
+  .protocol-list li:last-child{ border-bottom:none; }
+  .protocol-list li::before{
+    content: counter(step); flex-shrink:0; width:24px; height:24px; border-radius:50%; background: var(--panel);
+    border:1px solid var(--panel-line); display:flex; align-items:center; justify-content:center; font-family: var(--mono); font-size:12px; color: var(--blue);
+  }
+
+  .device-section{ padding: 16px 0; }
+  .device-row{ display:flex; justify-content:space-between; padding: 10px 0; border-bottom: 1px solid var(--panel-line); font-size: 14px; }
+  .device-row:last-child{ border-bottom:none; }
+  .device-row span:first-child{ color: var(--text-dim); }
+  .device-row span:last-child{ font-family: var(--mono); }
+
+  /* ---------- Alerts (page 2) ---------- */
+  .alert-item{ display:flex; align-items:flex-start; gap: 10px; padding: 12px 14px; border-radius: 8px; background: var(--panel); border-left: 3px solid var(--panel-line); margin-bottom: 8px; font-size: 14px; }
+  .alert-item.bad{ border-left-color: var(--bad); color: var(--bad); background: var(--bad-dim); }
+  .alert-item.warn{ border-left-color: var(--warn); color: var(--warn); background: var(--warn-dim); }
+  .alert-empty{ font-size: 14px; color: var(--text-dim); }
+
+  .grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .grid-3{ display:grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 20px; }
+  .panel{ background: var(--panel); border: 1px solid var(--panel-line); border-left-width: 3px; border-radius: 10px; padding: 16px; }
+  .panel .head{ display:flex; align-items:center; gap: 8px; margin-bottom: 10px; }
+  .panel h3{ font-size: 13px; font-weight: 500; color: var(--text-dim); }
+  .panel .value{ font-family: var(--mono); font-size: 26px; font-weight: 600; }
+  .panel .sub{ font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .panel .status-line{ font-size: 12px; margin-top: 6px; font-family: var(--mono); }
+  .panel .status-line.ok{ color: var(--clean); }
+  .panel .status-line.bad{ color: var(--bad); }
+  .panel.coral{ border-left-color: var(--coral); } .panel.coral .value{ color: var(--coral); }
+  .panel.teal{ border-left-color: var(--clean); } .panel.teal .value{ color: var(--clean); }
+  .panel.purple{ border-left-color: var(--purple); } .panel.purple .value{ color: var(--purple); }
+  .panel.pink{ border-left-color: var(--pink); } .panel.pink .value{ color: var(--pink); }
+  .panel.blue{ border-left-color: var(--blue); } .panel.blue .value{ color: var(--blue); }
+
+  .reduction{ display:flex; align-items:center; gap: 16px; padding: 16px 0; margin-bottom: 8px; }
+  .reduction .value{ font-family: var(--mono); font-size: 30px; font-weight: 700; color: var(--clean); }
+  .reduction .label{ font-size: 13px; color: var(--text-dim); }
+
+  /* ---------- History (page 3) ---------- */
+  .chart-wrap{ position: relative; height: 240px; margin-bottom: 12px; }
+  .legend{ display:flex; gap: 20px; font-size: 13px; color: var(--text-dim); margin-bottom: 20px; }
+  .legend-item{ display:flex; align-items:center; gap: 6px; }
+  .legend-dot{ width:10px; height:10px; border-radius:2px; }
+
+  /* ---------- Fleet (page 4) ---------- */
+  .fleet-card{ background: var(--panel); border:1px solid var(--panel-line); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+  .fleet-card.me{ border-color: var(--blue); background: var(--blue-dim); }
+  .fleet-top{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .fleet-name{ font-size: 14px; font-weight: 500; }
+  .fleet-id{ font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+  .fleet-meta{ display:flex; justify-content:space-between; align-items:center; font-size: 12px; }
+  .fleet-status{ display:flex; align-items:center; gap:6px; font-family: var(--mono); }
+  .risk-badge{ display:inline-block; padding: 3px 10px; border-radius: 4px; font-family: var(--mono); font-size: 11px; }
+  .risk-faible{ background: var(--clean-dim); color: var(--clean); }
+  .risk-modere{ background: var(--warn-dim); color: var(--warn); }
+  .risk-eleve{ background: var(--bad-dim); color: var(--bad); }
+
+  /* ---------- Profile (page 5) ---------- */
+  .profile-card{ background: var(--panel); border:1px solid var(--panel-line); border-radius: 12px; padding: 24px; text-align:center; margin-bottom: 20px; }
+  .profile-card .avatar{ width:64px; height:64px; font-size: 20px; margin: 0 auto 12px auto; }
+  .profile-card .name{ font-size: 17px; font-weight: 600; margin-bottom:4px; }
+  .profile-card .site{ font-size: 13px; color: var(--text-dim); }
+  .logout-btn{ width:100%; background:none; border: 1px solid var(--panel-line); color: var(--text-dim); font-size: 13px; padding: 12px; border-radius: 8px; }
+  .logout-btn:hover{ color: var(--text); border-color: var(--text-dim); }
+  .note{ font-size: 12px; color: var(--text-dim); margin-top: 20px; line-height:1.6; }
+  .note code{ font-family: var(--mono); background: var(--panel); padding: 2px 6px; border-radius: 4px; }
+  .dot{ width:8px; height:8px; border-radius:50%; background: var(--clean); box-shadow: 0 0 0 3px var(--clean-dim); }
+  .dot.bad{ background: var(--bad); box-shadow: 0 0 0 3px var(--bad-dim); }
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN / SIGNUP ================= -->
+<div id="loginScreen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="icon-chip"><svg viewBox="0 0 24 24" fill="none" stroke="#0d1310" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 16h15a3 3 0 1 1-3 3"/></svg></span>
+      <h1>Souffle</h1>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin" onclick="setAuthTab('login')">Connexion</button>
+      <button class="auth-tab" id="tabSignup" onclick="setAuthTab('signup')">Créer un compte</button>
+    </div>
+    <form id="loginForm" onsubmit="return handleLogin(event)">
+      <div class="field"><label>E-mail</label><input type="email" id="loginEmail" required></div>
+      <div class="field"><label>Mot de passe</label><input type="password" id="loginPassword" required></div>
+      <button class="auth-submit" type="submit">Se connecter</button>
+      <div class="auth-error" id="loginError">Identifiants incorrects.</div>
+      <div class="auth-hint">Compte démo : <code>admin@souffle.cm</code> / <code>demo1234</code></div>
+    </form>
+    <form id="signupForm" style="display:none" onsubmit="return handleSignup(event)">
+      <div class="field"><label>Nom</label><input type="text" id="suName" required></div>
+      <div class="field"><label>Nom du site / entreprise</label><input type="text" id="suSite" required></div>
+      <div class="field"><label>E-mail</label><input type="email" id="suEmail" required></div>
+      <div class="field"><label>Mot de passe</label><input type="password" id="suPassword" required minlength="6"></div>
+      <button class="auth-submit" type="submit">Créer mon compte</button>
+      <div class="auth-error" id="signupError">Cet e-mail est déjà utilisé.</div>
+    </form>
+    <a class="auth-guest" onclick="continueAsGuest()">Continuer en tant qu'invité →</a>
+  </div>
+</div>
+
+<!-- ================= APP (mobile-style, 5 pages) ================= -->
+<div id="app">
+
+  <div class="app-bar">
+    <div class="app-bar-title">
+      <span class="icon-chip"><svg viewBox="0 0 24 24" fill="none" stroke="#0d1310" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 16h15a3 3 0 1 1-3 3"/></svg></span>
+      <h1 id="pageHeaderTitle">Dispositif</h1>
+    </div>
+    <div class="avatar" id="userAvatar" style="background:var(--clean)">—</div>
+  </div>
+
+  <!-- PAGE 1 : Présentation & protocole -->
+  <section class="page active" id="page-device">
+    <div class="page-title">Dispositif</div>
+    <div class="page-sub">Présentation et protocole de purification</div>
+
+    <div class="hero">
+      <svg class="hero-illustration" viewBox="0 0 90 90" fill="none">
+        <circle cx="45" cy="45" r="42" stroke="#2a3238" stroke-width="2"/>
+        <path d="M20 40h30a8 8 0 1 0-8-8" stroke="#5b9bf7" stroke-width="3" stroke-linecap="round"/>
+        <path d="M20 52h40a8 8 0 1 1-8 8" stroke="#4fbf8b" stroke-width="3" stroke-linecap="round"/>
+        <path d="M20 64h22" stroke="#9c8ef2" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <div class="hero-number" id="liveReading">—</div>
+        <div class="hero-unit">µg/m³ (PM2.5, sortie)</div>
+        <div class="badge" id="qualityBadge">—</div>
+      </div>
+    </div>
+
+    <div class="section-title" style="font-size:15px;font-weight:500;margin-bottom:10px;">Protocole de fonctionnement</div>
+    <ol class="protocol-list">
+      <li>L'air pollué (fumées d'usine ou de véhicules) est aspiré par un ventilateur vers la chambre du dispositif.</li>
+      <li>Un module haute tension charge électriquement les particules via une électrode négative.</li>
+      <li>Les particules chargées sont attirées et collectées sur une plaque reliée à la terre.</li>
+      <li>L'air purifié est relâché, débarrassé de la majorité des particules polluantes.</li>
+      <li>Les déchets collectés (suie/carbone) sont récupérés pour être valorisés en matériau ou combustible.</li>
+      <li>Des capteurs mesurent en continu l'air avant/après traitement et envoient les données à la plateforme via un ESP32.</li>
+    </ol>
+
+    <div class="section-title" style="font-size:15px;font-weight:500;margin-bottom:10px;">État du dispositif</div>
+    <div class="device-section">
+      <div class="device-row"><span>Module haute tension</span><span id="htStatus">Actif — 8.2 kV</span></div>
+      <div class="device-row"><span>Ventilateur</span><span id="fanStatus">En marche</span></div>
+      <div class="device-row"><span>Dernière lecture</span><span id="lastReading">—</span></div>
+      <div class="device-row"><span>Connexion capteurs</span><span>Simulée (démo)</span></div>
+    </div>
+  </section>
+
+  <!-- PAGE 2 : Alertes -->
+  <section class="page" id="page-alerts">
+    <div class="page-title">Alertes</div>
+    <div class="page-sub">Seuils de pollution, pannes, polluants additionnels</div>
+    <div id="alertsList"></div>
+
+    <div class="grid-2" style="margin-top:20px;">
+      <div class="panel coral">
+        <div class="head">
+          <span class="icon-chip" style="background:var(--coral-dim)"><svg viewBox="0 0 24 24" fill="none" stroke="#ef8a5f" stroke-width="2" stroke-linecap="round"><path d="M3 21V10l7-4 7 4v11"/><path d="M14 21v-6h-4v6"/><path d="M17 8V4h3v6"/></svg></span>
+          <h3>Air entrée</h3>
+        </div>
+        <div class="value" id="beforeValue">—</div>
+        <div class="sub">µg/m³ (PM2.5)</div>
+      </div>
+      <div class="panel teal">
+        <div class="head">
+          <span class="icon-chip" style="background:var(--clean-dim)"><svg viewBox="0 0 24 24" fill="none" stroke="#4fbf8b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a5 5 0 0 1 5-9 6 6 0 0 1 11 3 4.5 4.5 0 0 1-1 8.9H6a4 4 0 0 1-2-2.9z"/></svg></span>
+          <h3>Air sortie</h3>
+        </div>
+        <div class="value" id="afterValue">—</div>
+        <div class="sub">µg/m³ (PM2.5)</div>
+      </div>
+    </div>
+
+    <div class="reduction">
+      <div class="value" id="reductionValue">—</div>
+      <div class="label">de particules retirées, moyenne sur la dernière heure</div>
+    </div>
+
+    <div class="grid-3">
+      <div class="panel purple" id="panelCO">
+        <div class="head"><span class="icon-chip" style="background:var(--purple-dim)"><svg viewBox="0 0 24 24" fill="none" stroke="#9c8ef2" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 12h6"/></svg></span><h3>CO</h3></div>
+        <div class="value" id="coValue">—</div><div class="sub">ppm</div><div class="status-line ok" id="coStatus">Normal</div>
+      </div>
+      <div class="panel pink" id="panelNOx">
+        <div class="head"><span class="icon-chip" style="background:var(--pink-dim)"><svg viewBox="0 0 24 24" fill="none" stroke="#ea72a0" stroke-width="2" stroke-linecap="round"><path d="M4 12h16M4 6h10M4 18h13"/></svg></span><h3>NOx</h3></div>
+        <div class="value" id="noxValue">—</div><div class="sub">ppm</div><div class="status-line ok" id="noxStatus">Normal</div>
+      </div>
+      <div class="panel blue" id="panelSO2">
+        <div class="head"><span class="icon-chip" style="background:var(--blue-dim)"><svg viewBox="0 0 24 24" fill="none" stroke="#5b9bf7" stroke-width="2" stroke-linecap="round"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></svg></span><h3>SO2</h3></div>
+        <div class="value" id="so2Value">—</div><div class="sub">ppb</div><div class="status-line ok" id="so2Status">Normal</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 3 : Historique -->
+  <section class="page" id="page-history">
+    <div class="page-title">Historique</div>
+    <div class="page-sub">Comparaison entrée / sortie — 24 dernières heures</div>
+    <div class="chart-wrap"><canvas id="historyChart"></canvas></div>
+    <div class="legend">
+      <div class="legend-item"><span class="legend-dot" style="background:#ef8a5f"></span> Entrée</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#4fbf8b"></span> Sortie</div>
+    </div>
+  </section>
+
+  <!-- PAGE 4 : Dispositifs / utilisateurs -->
+  <section class="page" id="page-fleet">
+    <div class="page-title">Dispositifs</div>
+    <div class="page-sub">Recensement de tous les points d'installation suivis</div>
+    <div id="fleetList"></div>
+  </section>
+
+  <!-- PAGE 5 : Profil -->
+  <section class="page" id="page-profile">
+    <div class="page-title">Profil</div>
+    <div class="page-sub">Votre compte</div>
+    <div class="profile-card">
+      <div class="avatar" id="profileAvatar">—</div>
+      <div class="name" id="profileName">—</div>
+      <div class="site" id="profileSite">—</div>
+    </div>
+    <button class="logout-btn" onclick="logout()">Déconnexion</button>
+    <div class="note">
+      Les comptes et la connexion sont simulés dans le navigateur (démonstration front-end, aucun vrai serveur derrière). Pour une authentification réellement sécurisée en production, il faudra brancher un service comme <code>Firebase Authentication</code>.<br><br>
+      Les données de pollution restent simulées, en attendant le branchement du prototype ESP32.
+    </div>
+  </section>
+
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-page="device" onclick="showPage('device')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg>
+      Dispositif
+    </button>
+    <button class="nav-item" data-page="alerts" onclick="showPage('alerts')">
+      <span class="nav-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/></svg><span class="nav-badge" id="navAlertBadge" style="display:none">0</span></span>
+      Alertes
+    </button>
+    <button class="nav-item" data-page="history" onclick="showPage('history')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+      Historique
+    </button>
+    <button class="nav-item" data-page="fleet" onclick="showPage('fleet')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2 20c0-3.5 3-6 7-6s7 2.5 7 6"/><circle cx="17" cy="9" r="2.3"/><path d="M22 20c0-2.6-1.8-4.6-4-5.3"/></svg>
+      Dispositifs
+    </button>
+    <button class="nav-item" data-page="profile" onclick="showPage('profile')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+      Profil
+    </button>
+  </nav>
+
+</div>
+
+<script>
+  // ============== NAVIGATION ==============
+  const PAGE_TITLES = { device: 'Dispositif', alerts: 'Alertes', history: 'Historique', fleet: 'Dispositifs', profile: 'Profil' };
+  function showPage(name){
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + name).classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === name));
+    document.getElementById('pageHeaderTitle').textContent = PAGE_TITLES[name];
+  }
+
+  // ============== ACCOUNTS (demo only, stored in the browser) ==============
+  const DEMO_USER = { email: 'admin@souffle.cm', password: 'demo1234', name: 'Admin Souffle', site: 'Atelier métallurgique — Bassa' };
+  const AVATAR_COLORS = ['#4fbf8b', '#5b9bf7', '#9c8ef2', '#ef8a5f', '#ea72a0'];
+
+  function getUsers(){ const raw = localStorage.getItem('souffle_users'); return raw ? JSON.parse(raw) : [DEMO_USER]; }
+  function saveUsers(users){ localStorage.setItem('souffle_users', JSON.stringify(users)); }
+  function setCurrentUser(user){ localStorage.setItem('souffle_current_user', JSON.stringify(user)); }
+  function getCurrentUser(){ const raw = localStorage.getItem('souffle_current_user'); return raw ? JSON.parse(raw) : null; }
+  function clearCurrentUser(){ localStorage.removeItem('souffle_current_user'); }
+  function initials(name){ return name.trim().split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase(); }
+  function colorFor(str){ let h=0; for(let i=0;i<str.length;i++) h = str.charCodeAt(i) + ((h<<5)-h); return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]; }
+
+  function setAuthTab(tab){
+    document.getElementById('tabLogin').classList.toggle('active', tab === 'login');
+    document.getElementById('tabSignup').classList.toggle('active', tab === 'signup');
+    document.getElementById('loginForm').style.display = tab === 'login' ? 'block' : 'none';
+    document.getElementById('signupForm').style.display = tab === 'signup' ? 'block' : 'none';
+  }
+  function handleLogin(e){
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+    const password = document.getElementById('loginPassword').value;
+    const user = getUsers().find(u => u.email.toLowerCase() === email && u.password === password);
+    const errorEl = document.getElementById('loginError');
+    if(user){ errorEl.style.display = 'none'; setCurrentUser(user); enterApp(user); }
+    else { errorEl.style.display = 'block'; }
+    return false;
+  }
+  function handleSignup(e){
+    e.preventDefault();
+    const name = document.getElementById('suName').value.trim();
+    const site = document.getElementById('suSite').value.trim();
+    const email = document.getElementById('suEmail').value.trim().toLowerCase();
+    const password = document.getElementById('suPassword').value;
+    const users = getUsers();
+    const errorEl = document.getElementById('signupError');
+    if(users.some(u => u.email.toLowerCase() === email)){ errorEl.style.display = 'block'; return false; }
+    errorEl.style.display = 'none';
+    const newUser = { name, site, email, password };
+    users.push(newUser); saveUsers(users); setCurrentUser(newUser); enterApp(newUser);
+    return false;
+  }
+  function continueAsGuest(){ enterApp({ name: 'Invité', site: 'Session de démonstration', email: null }); }
+  function logout(){
+    clearCurrentUser();
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPassword').value = '';
+  }
+  function enterApp(user){
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    const av = initials(user.name), col = colorFor(user.name);
+    document.getElementById('userAvatar').textContent = av;
+    document.getElementById('userAvatar').style.background = col;
+    document.getElementById('profileAvatar').textContent = av;
+    document.getElementById('profileAvatar').style.background = col;
+    document.getElementById('profileName').textContent = user.name;
+    document.getElementById('profileSite').textContent = user.site;
+    window.currentUserSite = user.site;
+    renderFleet();
+    showPage('device');
+  }
+
+  // ============== FLEET ==============
+  const fleet = [
+    { site: 'Atelier métallurgique — Bassa', id: 'SF-001', status: 'ok', risk: 'faible' },
+    { site: 'Usine textile — Bonabéri', id: 'SF-002', status: 'ok', risk: 'modere' },
+    { site: 'Garage véhicules lourds — Ndogpassi', id: 'SF-003', status: 'panne', risk: 'eleve' },
+    { site: 'Briqueterie — Yassa', id: 'SF-004', status: 'hors-ligne', risk: 'modere' },
+    { site: 'Menuiserie industrielle — Ngodi', id: 'SF-005', status: 'ok', risk: 'faible' }
+  ];
+  function renderFleet(){
+    const list = document.getElementById('fleetList');
+    list.innerHTML = '';
+    const statusLabels = { 'ok': { text: 'En ligne', color: '#4fbf8b' }, 'panne': { text: 'Panne', color: '#e0605a' }, 'hors-ligne': { text: 'Hors ligne', color: '#8b9a94' } };
+    const riskClass = { 'faible': 'risk-faible', 'modere': 'risk-modere', 'eleve': 'risk-eleve' };
+    const riskLabel = { 'faible': 'Faible', 'modere': 'Modéré', 'eleve': 'Élevé' };
+    fleet.forEach(d => {
+      const s = statusLabels[d.status];
+      const isMe = window.currentUserSite && d.site === window.currentUserSite;
+      const card = document.createElement('div');
+      card.className = 'fleet-card' + (isMe ? ' me' : '');
+      card.innerHTML =
+        '<div class="fleet-top"><div class="avatar" style="width:30px;height:30px;font-size:11px;background:' + colorFor(d.site) + '">' + initials(d.site) + '</div>' +
+        '<div><div class="fleet-name">' + d.site + '</div><div class="fleet-id">' + d.id + '</div></div></div>' +
+        '<div class="fleet-meta"><span class="fleet-status"><span class="dot" style="background:' + s.color + '; box-shadow:none; width:7px; height:7px"></span>' + s.text + '</span>' +
+        '<span class="risk-badge ' + riskClass[d.risk] + '">' + riskLabel[d.risk] + '</span></div>';
+      list.appendChild(card);
+    });
+  }
+
+  // ============== SENSOR SIMULATION ==============
+  const ALERT_THRESHOLD = 150, CO_THRESHOLD = 9, NOX_THRESHOLD = 0.5, SO2_THRESHOLD = 75, HISTORY_POINTS = 24;
+  let currentBefore = 95, currentAfter = 22, currentCO = 3, currentNOx = 0.2, currentSO2 = 25;
+  function randomWalk(value, min, max, step){ const delta = (Math.random()-0.5)*step; return Math.max(min, Math.min(max, value+delta)); }
+  function generateReading(){
+    currentBefore = randomWalk(currentBefore, 40, 180, 14);
+    currentAfter = randomWalk(currentAfter, 8, currentBefore*0.4, 6);
+    currentCO = randomWalk(currentCO, 1, 12, 1.5);
+    currentNOx = randomWalk(currentNOx, 0.05, 0.7, 0.08);
+    currentSO2 = randomWalk(currentSO2, 5, 95, 10);
+    return { before: Math.round(currentBefore), after: Math.round(currentAfter), co: Math.round(currentCO*10)/10, nox: Math.round(currentNOx*100)/100, so2: Math.round(currentSO2), time: new Date() };
+  }
+  function qualityFor(value){
+    if(value <= 25) return { label: 'Bon', color: '#4fbf8b', bg: '#274a3c' };
+    if(value <= 75) return { label: 'Modéré', color: '#e2a73b', bg: '#4a3d20' };
+    return { label: 'Mauvais', color: '#e0605a', bg: '#4a2620' };
+  }
+
+  const labels = [], beforeSeries = [], afterSeries = [];
+  let seedBefore = 90, seedAfter = 25;
+  for(let i = HISTORY_POINTS; i >= 0; i--){
+    const t = new Date(Date.now() - i*60*60*1000);
+    labels.push(t.getHours() + 'h');
+    seedBefore = randomWalk(seedBefore, 40, 180, 20);
+    seedAfter = randomWalk(seedAfter, 8, seedBefore*0.4, 8);
+    beforeSeries.push(Math.round(seedBefore)); afterSeries.push(Math.round(seedAfter));
+  }
+  const ctx = document.getElementById('historyChart').getContext('2d');
+  const historyChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: labels, datasets: [
+      { label: 'Entrée', data: beforeSeries, borderColor: '#ef8a5f', backgroundColor: 'rgba(239,138,95,0.1)', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true },
+      { label: 'Sortie', data: afterSeries, borderColor: '#4fbf8b', backgroundColor: 'rgba(79,191,139,0.1)', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true }
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: '#2a3238' }, ticks: { color: '#8b9a94', font: { size: 10 }, maxTicksLimit: 6 } },
+                y: { grid: { color: '#2a3238' }, ticks: { color: '#8b9a94', font: { size: 10 } } } } }
+  });
+
+  let deviceFailure = false;
+  function renderAlerts(reading){
+    const list = document.getElementById('alertsList');
+    const alerts = [];
+    if(reading.before > ALERT_THRESHOLD) alerts.push({ level: 'warn', text: 'Seuil de pollution dépassé en entrée (PM2.5 à ' + reading.before + ' µg/m³).' });
+    if(reading.co > CO_THRESHOLD) alerts.push({ level: 'bad', text: 'Niveau de CO anormalement élevé détecté (' + reading.co + ' ppm).' });
+    if(reading.nox > NOX_THRESHOLD) alerts.push({ level: 'bad', text: 'Niveau de NOx anormalement élevé détecté (' + reading.nox + ' ppm).' });
+    if(reading.so2 > SO2_THRESHOLD) alerts.push({ level: 'bad', text: 'Niveau de SO2 anormalement élevé détecté (' + reading.so2 + ' ppb).' });
+    if(deviceFailure) alerts.push({ level: 'bad', text: 'Panne détectée sur le dispositif principal — module haute tension hors service.' });
+    fleet.forEach(d => {
+      if(d.status === 'panne') alerts.push({ level: 'bad', text: 'Panne signalée : ' + d.site + ' (' + d.id + ').' });
+      if(d.status === 'hors-ligne') alerts.push({ level: 'warn', text: 'Hors ligne : ' + d.site + ' (' + d.id + ').' });
+    });
+    list.innerHTML = alerts.length === 0
+      ? '<div class="alert-empty">Aucune alerte active — tout fonctionne normalement.</div>'
+      : alerts.map(a => '<div class="alert-item ' + a.level + '">' + a.text + '</div>').join('');
+    const badge = document.getElementById('navAlertBadge');
+    if(alerts.length > 0){ badge.style.display = 'flex'; badge.textContent = alerts.length; } else { badge.style.display = 'none'; }
+  }
+
+  function updatePollutantPanel(id, value, threshold){
+    document.getElementById(id + 'Value').textContent = value;
+    const statusEl = document.getElementById(id + 'Status');
+    if(value > threshold){ statusEl.textContent = 'Élevé'; statusEl.className = 'status-line bad'; }
+    else { statusEl.textContent = 'Normal'; statusEl.className = 'status-line ok'; }
+  }
+
+  function updateUI(){
+    const reading = generateReading();
+    const quality = qualityFor(reading.after);
+    const reduction = Math.round((1 - reading.after / reading.before) * 100);
+
+    document.getElementById('liveReading').textContent = reading.after;
+    document.getElementById('liveReading').style.color = quality.color;
+    document.getElementById('qualityBadge').textContent = quality.label;
+    document.getElementById('qualityBadge').style.color = quality.color;
+    document.getElementById('qualityBadge').style.background = quality.bg;
+    document.getElementById('beforeValue').textContent = reading.before;
+    document.getElementById('afterValue').textContent = reading.after;
+    document.getElementById('reductionValue').textContent = reduction + '%';
+    document.getElementById('lastReading').textContent = reading.time.toLocaleTimeString('fr-FR');
+
+    updatePollutantPanel('co', reading.co, CO_THRESHOLD);
+    updatePollutantPanel('nox', reading.nox, NOX_THRESHOLD);
+    updatePollutantPanel('so2', reading.so2, SO2_THRESHOLD);
+
+    deviceFailure = Math.random() < 0.05;
+    document.getElementById('htStatus').textContent = deviceFailure ? 'Hors service' : 'Actif — 8.2 kV';
+    document.getElementById('fanStatus').textContent = deviceFailure ? 'Arrêté' : 'En marche';
+
+    renderAlerts(reading);
+
+    historyChart.data.labels.push(reading.time.getHours() + 'h' + reading.time.getMinutes());
+    historyChart.data.datasets[0].data.push(reading.before);
+    historyChart.data.datasets[1].data.push(reading.after);
+    if(historyChart.data.labels.length > HISTORY_POINTS + 1){
+      historyChart.data.labels.shift(); historyChart.data.datasets[0].data.shift(); historyChart.data.datasets[1].data.shift();
+    }
+    historyChart.update('none');
+  }
+
+  const existing = getCurrentUser();
+  if(existing) enterApp(existing);
+
+  updateUI();
+  setInterval(updateUI, 4000);
+</script>
+
+</body>
+</html>
